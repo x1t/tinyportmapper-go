@@ -1,6 +1,6 @@
 #!/bin/bash
-# tinyPortMapper Go版本 iperf3 UDP 性能测试脚本
-# 用法: ./iperf3_udp_test.sh [--debug]
+# tinyPortMapper Go版本 iperf3 TCP 性能测试脚本
+# 用法: ./iperf3_tcp_test.sh [--debug]
 
 set -e
 
@@ -11,7 +11,6 @@ SERVER_PORT=5201
 TEST_DURATION=5
 PARALLEL_STREAMS=4
 LOG_DIR="/tmp/iperf3_test"
-TARGET_BITRATE="1G"
 DEBUG_MODE=false
 
 # --- 颜色定义 ---
@@ -69,7 +68,7 @@ trap cleanup EXIT
 # --- 初始准备 ---
 mkdir -p "$LOG_DIR"
 if [ "$DEBUG_MODE" = false ]; then
-    print_header "tinyPortMapper Go UDP 专项性能测试"
+    print_header "tinyPortMapper Go TCP 专项性能测试"
 fi
 
 # 预清理
@@ -78,7 +77,7 @@ cleanup
 # ==================== 测试开始 ====================
 
 # [1/4] 启动服务器
-echo_color $BLUE "🚀 [1/4] 启动 iperf3 UDP 服务器 (端口 $SERVER_PORT)..."
+echo_color $BLUE "🚀 [1/4] 启动 iperf3 TCP 服务器 (端口 $SERVER_PORT)..."
 if [ "$DEBUG_MODE" = true ]; then
     iperf3 -s -p $SERVER_PORT &
 else
@@ -95,16 +94,17 @@ fi
 echo_color $GREEN "  ✓ iperf3 服务器已就绪"
 
 # [2/4] 基准测试
-echo_color $BLUE "🚀 [2/4] 开始基准测试 (直接连接, 目标: $TARGET_BITRATE)..."
+echo_color $BLUE "🚀 [2/4] 开始基准测试 (直接连接)..."
 if [ "$DEBUG_MODE" = true ]; then
-    iperf3 -c 127.0.0.1 -p $SERVER_PORT -u -b $TARGET_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS 2>&1 | tee "$LOG_DIR/direct_udp_output.txt"
-    iperf3 -c 127.0.0.1 -p $SERVER_PORT -u -b $TARGET_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/direct_udp.json" 2>/dev/null || true
+    iperf3 -c 127.0.0.1 -p $SERVER_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS 2>&1 | tee "$LOG_DIR/direct_output.txt"
+    # 同时生成 JSON 供后续分析
+    iperf3 -c 127.0.0.1 -p $SERVER_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/direct_tcp.json" 2>/dev/null || true
 else
-    iperf3 -c 127.0.0.1 -p $SERVER_PORT -u -b $TARGET_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/direct_udp.json"
+    iperf3 -c 127.0.0.1 -p $SERVER_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/direct_tcp.json"
 fi
 echo_color $GREEN "  ✓ 基准测试完成"
 
-# 重置服务器
+# 为了下一轮，重启服务器（iperf3 默认接受一次连接后可能需要重置，特别是某些版本）
 kill $SERVER_PID 2>/dev/null || true
 sleep 1
 iperf3 -s -p $SERVER_PORT > /dev/null 2>&1 &
@@ -112,11 +112,11 @@ SERVER_PID=$!
 sleep 1
 
 # [3/4] 启动 tinyPortMapper
-echo_color $BLUE "🚀 [3/4] 启动 tinyPortMapper (转发: $LISTEN_PORT -> $SERVER_PORT, UDP开启)..."
+echo_color $BLUE "🚀 [3/4] 启动 tinyPortMapper (转发: $LISTEN_PORT -> $SERVER_PORT)..."
 if [ "$DEBUG_MODE" = true ]; then
-    $TINYPORTMAPPER -l 127.0.0.1:$LISTEN_PORT -r 127.0.0.1:$SERVER_PORT -t -u &
+    $TINYPORTMAPPER -l 127.0.0.1:$LISTEN_PORT -r 127.0.0.1:$SERVER_PORT -t &
 else
-    $TINYPORTMAPPER -l 127.0.0.1:$LISTEN_PORT -r 127.0.0.1:$SERVER_PORT -t -u > /dev/null 2>&1 &
+    $TINYPORTMAPPER -l 127.0.0.1:$LISTEN_PORT -r 127.0.0.1:$SERVER_PORT -t > /dev/null 2>&1 &
 fi
 TPM_PID=$!
 sleep 2
@@ -128,18 +128,18 @@ fi
 echo_color $GREEN "  ✓ tinyPortMapper 已就绪 (PID: $TPM_PID)"
 
 # [4/4] 转发测试
-echo_color $BLUE "🚀 [4/4] 开始转发性能测试 (目标: $TARGET_BITRATE)..."
+echo_color $BLUE "🚀 [4/4] 开始转发性能测试..."
 if [ "$DEBUG_MODE" = true ]; then
-    iperf3 -c 127.0.0.1 -p $LISTEN_PORT -u -b $TARGET_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS 2>&1 | tee "$LOG_DIR/forward_udp_output.txt"
-    iperf3 -c 127.0.0.1 -p $LISTEN_PORT -u -b $TARGET_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/forward_udp.json" 2>/dev/null || true
+    iperf3 -c 127.0.0.1 -p $LISTEN_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS 2>&1 | tee "$LOG_DIR/forward_output.txt"
+    iperf3 -c 127.0.0.1 -p $LISTEN_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/forward_tcp.json" 2>/dev/null || true
 else
-    iperf3 -c 127.0.0.1 -p $LISTEN_PORT -u -b $TARGET_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/forward_udp.json"
+    iperf3 -c 127.0.0.1 -p $LISTEN_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS --json > "$LOG_DIR/forward_tcp.json"
 fi
 echo_color $GREEN "  ✓ 转发测试完成"
 
 # ==================== 结果分析 ====================
 if [ "$DEBUG_MODE" = false ]; then
-    print_header "UDP 测试结果汇总"
+    print_header "TCP 测试结果汇总"
     python3 << 'PYEOF'
 import json
 import os
@@ -160,40 +160,27 @@ def format_bw(bps):
     if bps >= 1e9: return f"{bps/1e9:.2f} Gbps"
     return f"{bps/1e6:.2f} Mbps"
 
-def get_udp_metrics(raw):
-    if not raw: return None
-    end = raw.get('end', {})
-    sum_received = end.get('sum_received', {})
-    sum_sent = end.get('sum_sent', {})
-    return {
-        "bps": sum_received.get('bits_per_second', 0) or sum_sent.get('bits_per_second', 0),
-        "loss": sum_received.get('lost_percent', 0),
-        "jitter": sum_received.get('jitter_ms', 0)
-    }
+d_raw, d_err = load_json("direct_tcp.json")
+f_raw, f_err = load_json("forward_tcp.json")
 
-d_raw, d_err = load_json("direct_udp.json")
-f_raw, f_err = load_json("forward_udp.json")
+bps_d = d_raw.get('end', {}).get('sum_sent', {}).get('bits_per_second', 0) if d_raw else 0
+bps_f = f_raw.get('end', {}).get('sum_sent', {}).get('bits_per_second', 0) if f_raw else 0
 
-m_d = get_udp_metrics(d_raw)
-m_f = get_udp_metrics(f_raw)
+print("\033[1;32m┌" + "─"*60 + "┐\033[0m")
+line_d = f" 直接连接 (基准): {format_bw(bps_d)}" if not d_err else f" 直接连接: ❌ {d_err[:30]}"
+line_f = f" 转发连接 (TPM):  {format_bw(bps_f)}" if not f_err else f" 转发连接: ❌ {f_err[:30]}"
+print(f"\033[1;32m│\033[0m {line_d:<58} \033[1;32m│\033[0m")
+print(f"\033[1;32m│\033[0m {line_f:<58} \033[1;32m│\033[0m")
 
-print("\033[1;34m┌" + "─"*72 + "┐\033[0m")
-if m_d:
-    line_d = f" 直接连接: {format_bw(m_d['bps']):<15} 丢包: {m_d['loss']:>5.2f}%  抖动: {m_d['jitter']:>6.3f} ms"
-    print(f"\033[1;34m│\033[0m {line_d:<70} \033[1;34m│\033[0m")
-if m_f:
-    line_f = f" 转发连接: {format_bw(m_f['bps']):<15} 丢包: {m_f['loss']:>5.2f}%  抖动: {m_f['jitter']:>6.3f} ms"
-    print(f"\033[1;34m│\033[0m {line_f:<70} \033[1;34m│\033[0m")
-
-if m_d and m_f and m_d['bps'] > 0:
-    ratio = (m_f['bps'] / m_d['bps']) * 100
-    status = "🌟 极佳" if ratio > 95 else ("✅ 优秀" if ratio > 85 else "⚠️ 良好")
-    print("\033[1;34m├" + "─"*72 + "┤\033[0m")
-    print(f"\033[1;34m│\033[0m 转发效率: {ratio:.2f}%  ({status})" + " "*(72-24-len(status)) + "\033[1;34m│\033[0m")
-print("\033[1;34m└" + "─"*72 + "┘\033[0m")
+if bps_d > 0 and bps_f > 0:
+    ratio = (bps_f / bps_d) * 100
+    status = "🔥 极佳" if ratio > 90 else ("✅ 优秀" if ratio > 75 else "⚠️ 一般")
+    print("\033[1;32m├" + "─"*60 + "┤\033[0m")
+    print(f"\033[1;32m│\033[0m 转发效率: {ratio:.2f}%  ({status})" + " "*(60-24-len(status)) + "\033[1;32m│\033[0m")
+print("\033[1;32m└" + "─"*60 + "┘\033[0m")
 PYEOF
 fi
 
 echo ""
-echo_color $GREEN "✨ UDP 性能测试全部完成！"
+echo_color $GREEN "✨ TCP 性能测试全部完成！"
 echo ""

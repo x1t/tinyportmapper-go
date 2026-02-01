@@ -1,129 +1,60 @@
 #!/bin/bash
 # tinyPortMapper Go版本 综合性能测试脚本 (TCP + UDP)
-# 用法: ./iperf3_all_test.sh
+# 用法: ./iperf3_all_test.sh [--debug]
 
 set -e
 
-TINYPORTMAPPER="/root/tinyportmapper/tinyportmapper-go/tinyportmapper-go"
-LISTEN_PORT=3322
-SERVER_PORT=5201
-TEST_DURATION=5
-PARALLEL_STREAMS=4
+# --- 脚本定位 ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TCP_TEST="$SCRIPT_DIR/iperf3_tcp_test.sh"
+UDP_TEST="$SCRIPT_DIR/iperf3_udp_test.sh"
 LOG_DIR="/tmp/iperf3_test"
-UDP_BITRATE="1G"
+
+# --- 颜色定义 ---
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# --- 工具函数 ---
+echo_color() {
+    echo -e "${1}${2}${NC}"
+}
+
+print_header() {
+    echo ""
+    echo_color $CYAN "╔════════════════════════════════════════════════════════════════╗"
+    printf "${CYAN}║%*s%s%*s║${NC}\n" $(((64-${#1})/2)) "" "$1" $(((64-${#1}+1)/2)) ""
+    echo_color $CYAN "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+}
+
+# --- 初始检查 ---
+if [[ ! -f "$TCP_TEST" || ! -f "$UDP_TEST" ]]; then
+    echo_color $RED "❌ 错误: 找不到子测试脚本 ($TCP_TEST 或 $UDP_TEST)"
+    exit 1
+fi
 
 mkdir -p "$LOG_DIR"
+print_header "tinyPortMapper Go 版本 综合性能测试"
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# 参数透传
+EXTRA_ARGS="$@"
 
-echo_color() {
-    local color=$1
-    local msg=$2
-    echo -e "${color}${msg}${NC}"
-}
+# ==================== 执行子脚本 ====================
 
-# 清理函数
-cleanup() {
-    pkill -9 -f "tinyportmapper-go.*-l.*$LISTEN_PORT" 2>/dev/null || true
-    pkill -9 -f "iperf3.*-s.*-p.*$SERVER_PORT" 2>/dev/null || true
-    sleep 1
-}
-
-# 预清理
-echo_color $BLUE "清理残留进程..."
-cleanup
-sleep 2
-
-echo ""
-echo_color $GREEN "╔════════════════════════════════════════════════════════════════╗"
-echo_color $GREEN "║        tinyPortMapper Go 版本 综合性能测试 (TCP + UDP)        ║"
-echo_color $GREEN "╚════════════════════════════════════════════════════════════════╝"
+echo_color $BLUE ">>> [1/2] 正在开始进行 TCP 性能测试..."
+bash "$TCP_TEST" $EXTRA_ARGS
 echo ""
 
-# ==================== TCP 测试 ====================
-echo_color $YELLOW "═══════════════════════════════════════════════════════════════════"
-echo_color $YELLOW "  TCP 测试"
-echo_color $YELLOW "═══════════════════════════════════════════════════════════════════"
+echo_color $BLUE ">>> [2/2] 正在开始进行 UDP 性能测试..."
+bash "$UDP_TEST" $EXTRA_ARGS
 echo ""
 
-echo_color $BLUE "[TCP-1] 启动 iperf3 TCP 服务器..."
-iperf3 -s -p $SERVER_PORT &
-IPERF_PID=$!
-sleep 2
-
-echo_color $BLUE "[TCP-2] 第一轮: 直接 TCP 连接测试..."
-iperf3 -c 127.0.0.1 -p $SERVER_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS --json > $LOG_DIR/direct_tcp.json
-
-kill $IPERF_PID 2>/dev/null || true
-wait $IPERF_PID 2>/dev/null || true
-sleep 1
-
-echo_color $BLUE "[TCP-3] 重新启动 iperf3 TCP 服务器..."
-iperf3 -s -p $SERVER_PORT &
-IPERF_PID=$!
-sleep 2
-
-echo_color $BLUE "[TCP-4] 启动 tinyportmapper (TCP模式)..."
-$TINYPORTMAPPER -l 127.0.0.1:$LISTEN_PORT -r 127.0.0.1:$SERVER_PORT -t 2>&1 &
-TINYPORT_PID=$!
-sleep 2
-
-echo_color $BLUE "[TCP-5] 第二轮: TCP 转发测试..."
-iperf3 -c 127.0.0.1 -p $LISTEN_PORT -t $TEST_DURATION -P $PARALLEL_STREAMS --json > $LOG_DIR/forward_tcp.json
-
-kill $TINYPORT_PID 2>/dev/null || true
-wait $TINYPORT_PID 2>/dev/null || true
-kill $IPERF_PID 2>/dev/null || true
-wait $IPERF_PID 2>/dev/null || true
-
-# ==================== UDP 测试 ====================
-echo ""
-echo_color $YELLOW "═══════════════════════════════════════════════════════════════════"
-echo_color $YELLOW "  UDP 测试"
-echo_color $YELLOW "═══════════════════════════════════════════════════════════════════"
-echo ""
-
-echo_color $BLUE "[UDP-1] 启动 iperf3 UDP 服务器..."
-iperf3 -s -p $SERVER_PORT &
-IPERF_PID=$!
-sleep 2
-
-echo_color $BLUE "[UDP-2] 第一轮: 直接 UDP 连接测试 (4流, ${UDP_BITRATE}/流)..."
-iperf3 -c 127.0.0.1 -p $SERVER_PORT -u -b $UDP_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS --json > $LOG_DIR/direct_udp.json
-
-kill $IPERF_PID 2>/dev/null || true
-wait $IPERF_PID 2>/dev/null || true
-sleep 1
-
-echo_color $BLUE "[UDP-3] 重新启动 iperf3 UDP 服务器..."
-iperf3 -s -p $SERVER_PORT &
-IPERF_PID=$!
-sleep 2
-
-echo_color $BLUE "[UDP-4] 启动 tinyportmapper (TCP+UDP模式)..."
-$TINYPORTMAPPER -l 127.0.0.1:$LISTEN_PORT -r 127.0.0.1:$SERVER_PORT -t -u 2>&1 &
-TINYPORT_PID=$!
-sleep 2
-
-echo_color $BLUE "[UDP-5] 第二轮: UDP 转发测试 (4流, ${UDP_BITRATE}/流)..."
-iperf3 -c 127.0.0.1 -p $LISTEN_PORT -u -b $UDP_BITRATE -t $TEST_DURATION -P $PARALLEL_STREAMS --json > $LOG_DIR/forward_udp.json
-
-kill $TINYPORT_PID 2>/dev/null || true
-wait $TINYPORT_PID 2>/dev/null || true
-kill $IPERF_PID 2>/dev/null || true
-wait $IPERF_PID 2>/dev/null || true
-
-# ==================== 结果汇总 ====================
-echo ""
-echo_color $GREEN "╔════════════════════════════════════════════════════════════════╗"
-echo_color $GREEN "║                        测试结果汇总                             ║"
-echo_color $GREEN "╚════════════════════════════════════════════════════════════════╝"
-echo ""
+# ==================== 深度汇总分析 ====================
+print_header "综合性能深度分析报告"
 
 python3 << 'PYEOF'
 import json
@@ -131,116 +62,62 @@ import os
 
 LOG_DIR = "/tmp/iperf3_test"
 
-def parse_tcp_result(json_file):
-    """解析 TCP 测试结果"""
+def load_json(filename):
+    path = os.path.join(LOG_DIR, filename)
+    if not os.path.exists(path): return None
     try:
-        with open(os.path.join(LOG_DIR, json_file), 'r') as f:
-            data = json.load(f)
-        end = data.get('end', {})
-        if 'sum_sent' in end and 'bits_per_second' in end['sum_sent']:
-            bps = end['sum_sent']['bits_per_second']
-            return {"bits_per_second": bps, "error": None}
-        return {"error": "No data"}
-    except Exception as e:
-        return {"error": str(e)}
+        with open(path, 'r') as f:
+            return json.load(f)
+    except: return None
 
-def parse_udp_result(json_file):
-    """解析 UDP 测试结果"""
-    try:
-        with open(os.path.join(LOG_DIR, json_file), 'r') as f:
-            data = json.load(f)
-        if "error" in data:
-            return {"error": data["error"]}
-        end = data.get('end', {})
-        if 'sum_sent' in end:
-            sent = end['sum_sent']
-            return {
-                "bits_per_second": sent.get('bits_per_second', 0),
-                "lost_packets": sent.get('lost_packets', 0),
-                "total_packets": sent.get('packets', 1),
-                "loss_percent": sent.get('lost_percent', 0),
-                "jitter_ms": sent.get('jitter_ms', 0),
-                "error": None
-            }
-        return {"error": "No data"}
-    except Exception as e:
-        return {"error": str(e)}
+def get_bps(data, is_udp=False):
+    if not data: return 0
+    end = data.get('end', {})
+    if is_udp:
+        return end.get('sum_received', {}).get('bits_per_second', 0) or end.get('sum_sent', {}).get('bits_per_second', 0)
+    return end.get('sum_sent', {}).get('bits_per_second', 0)
 
-# 解析结果
-tcp_direct = parse_tcp_result("direct_tcp.json")
-tcp_forward = parse_tcp_result("forward_tcp.json")
-udp_direct = parse_udp_result("direct_udp.json")
-udp_forward = parse_udp_result("forward_udp.json")
+def format_bw(bps):
+    if bps >= 1e9: return f"{bps/1e9:.2f} Gbps"
+    return f"{bps/1e6:.2f} Mbps"
 
-# 格式化带宽
-def format_bps(bps):
-    if bps >= 1e9:
-        return f"{bps/1e9:.2f} Gbps"
-    else:
-        return f"{bps/1e6:.2f} Mbps"
+# 加载所有数据
+tcp_d = load_json("direct_tcp.json")
+tcp_f = load_json("forward_tcp.json")
+udp_d = load_json("direct_udp.json")
+udp_f = load_json("forward_udp.json")
 
-# TCP 结果
-print("┌─────────────────────────────────────────────────────────────────────────────┐")
-print("│                           TCP 测试结果                                       │")
-print("├─────────────────────────────────────────────────────────────────────────────┤")
-if tcp_direct.get("error"):
-    print(f"│  直接连接:  错误 - {tcp_direct['error']:<54} │")
-else:
-    print(f"│  直接连接:  {format_bps(tcp_direct['bits_per_second']):<18}                                        │")
-if tcp_forward.get("error"):
-    print(f"│  转发连接:  错误 - {tcp_forward['error']:<54} │")
-else:
-    print(f"│  转发连接:  {format_bps(tcp_forward['bits_per_second']):<18}                                        │")
-print("└─────────────────────────────────────────────────────────────────────────────┘")
+bps_tcp_d = get_bps(tcp_d)
+bps_tcp_f = get_bps(tcp_f)
+bps_udp_d = get_bps(udp_d, True)
+bps_udp_f = get_bps(udp_f, True)
 
-# UDP 结果
-print()
-print("┌─────────────────────────────────────────────────────────────────────────────┐")
-print("│                           UDP 测试结果                                       │")
-print("├─────────────────────────────────────────────────────────────────────────────┤")
-if udp_direct.get("error"):
-    print(f"│  直接连接:  错误 - {udp_direct['error']:<54} │")
-else:
-    loss = udp_direct.get('loss_percent', 0)
-    print(f"│  直接连接:  {format_bps(udp_direct['bits_per_second']):<18}  丢包: {loss:.2f}%                     │")
-if udp_forward.get("error"):
-    print(f"│  转发连接:  错误 - {udp_forward['error']:<54} │")
-else:
-    loss = udp_forward.get('loss_percent', 0)
-    print(f"│  转发连接:  {format_bps(udp_forward['bits_per_second']):<18}  丢包: {loss:.2f}%                     │")
-print("└─────────────────────────────────────────────────────────────────────────────┘")
+# 打印对比表
+print("\033[1;32m┌" + "─"*76 + "┐\033[0m")
+print("\033[1;32m│\033[0m" + " 性能对比概览 ".center(76) + "\033[1;32m│\033[0m")
+print("\033[1;32m├" + "─"*25 + "┬" + "─"*25 + "┬" + "─"*24 + "┤\033[0m")
+print(f"\033[1;32m│\033[0m 测试模式{'':<17} \033[1;32m│\033[0m 直接连接 (基准){'':<9} \033[1;32m│\033[0m 转发连接 (TPM){'':<9} \033[1;32m│\033[0m")
+print("\033[1;32m├" + "─"*25 + "┼" + "─"*25 + "┼" + "─"*24 + "┤\033[0m")
 
-# 性能对比
-print()
-print("┌─────────────────────────────────────────────────────────────────────────────┐")
-print("│                           性能对比总结                                       │")
-print("├─────────────────────────────────────────────────────────────────────────────┤")
+print(f"\033[1;32m│\033[0m TCP 吞吐量{'':<15} \033[1;32m│\033[0m {format_bw(bps_tcp_d):<23} \033[1;32m│\033[0m {format_bw(bps_tcp_f):<22} \033[1;32m│\033[0m")
+print(f"\033[1;32m│\033[0m UDP 吞吐量{'':<15} \033[1;32m│\033[0m {format_bw(bps_udp_d):<23} \033[1;32m│\033[0m {format_bw(bps_udp_f):<22} \033[1;32m│\033[0m")
+print("\033[1;32m└" + "─"*76 + "┘\033[0m")
 
-tcp_ratio = 0
-udp_ratio = 0
+# 效率统计
+print("\n\033[1;33m📊 效率分析:\033[0m")
+if bps_tcp_d > 0:
+    ratio_tcp = (bps_tcp_f / bps_tcp_d) * 100
+    print(f" - TCP 转发效率: {ratio_tcp:.2f}%")
+if bps_udp_d > 0:
+    ratio_udp = (bps_udp_f / bps_udp_d) * 100
+    print(f" - UDP 转发效率: {ratio_udp:.2f}%")
 
-if not tcp_direct.get("error") and not tcp_forward.get("error"):
-    tcp_ratio = tcp_forward['bits_per_second'] / tcp_direct['bits_per_second'] * 100
-    tcp_status = "✅ 优秀" if tcp_ratio > 80 else ("⚠️  中等" if tcp_ratio > 50 else "❌ 较差")
-    print(f"│  TCP 转发性能: {tcp_ratio:.1f}%  {tcp_status:<15}                               │")
-
-if not udp_direct.get("error") and not udp_forward.get("error"):
-    udp_ratio = udp_forward['bits_per_second'] / udp_direct['bits_per_second'] * 100
-    udp_status = "✅ 完美" if udp_ratio > 95 else ("✅ 优秀" if udp_ratio > 80 else "⚠️  中等")
-    print(f"│  UDP 转发性能: {udp_ratio:.1f}%  {udp_status:<15}                               │")
-
-print("└─────────────────────────────────────────────────────────────────────────────┘")
-
-# 结论
-print()
-if tcp_ratio > 0 and udp_ratio > 0:
-    if udp_ratio > tcp_ratio + 30:
-        print("💡 分析: UDP 性能显著优于 TCP，因为 UDP 转发更简单（无连接、无双向流控）")
-    elif tcp_ratio > 40:
-        print("💡 分析: TCP 性能正常，用户态代理 40-50% 是合理水平")
+# 丢包统计
+if udp_f:
+    loss = udp_f.get('end', {}).get('sum_received', {}).get('lost_percent', 0)
+    print(f" - UDP 转发丢包率: {loss:.2f}%")
 PYEOF
 
 echo ""
-echo_color $BLUE "测试完成! 结果保存在: $LOG_DIR/"
-ls -la $LOG_DIR/*.json
+echo_color $GREEN "🎉 综合性能测试全部完成！详细日志在: $LOG_DIR/"
 echo ""
