@@ -190,11 +190,11 @@ func TestAddress_Size(t *testing.T) {
 
 	// IPv4 size
 	size4 := addr4.Size()
-	assert.Equal(t, syscall.SizeofSockaddrInet4, size4)
+	assert.Equal(t, SizeofSockaddrInet4, size4)
 
 	// IPv6 size
 	size6 := addr6.Size()
-	assert.Equal(t, syscall.SizeofSockaddrInet6, size6)
+	assert.Equal(t, SizeofSockaddrInet6, size6)
 }
 
 func TestAddress_Hash(t *testing.T) {

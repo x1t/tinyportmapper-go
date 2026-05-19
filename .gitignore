@@ -3,7 +3,9 @@ vendor/
 go.sum
 
 # Build artifacts
-tinyportmapper
+/tinyportmapper
+/tinyportmapper.exe
+tinyportmapper-go
 *.exe
 *.exe~
 *.dll

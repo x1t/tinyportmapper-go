@@ -140,6 +140,11 @@ func (f *UDPForwarder) GetClientAddr() string {
 	return f.client.String()
 }
 
+// GetConn 获取关联的 UDP 连接对
+func (f *UDPForwarder) GetConn() *conn.UDPConn {
+	return f.conn
+}
+
 // UDPForwarderManager UDP 转发器管理器
 type UDPForwarderManager struct {
 	mu        sync.RWMutex

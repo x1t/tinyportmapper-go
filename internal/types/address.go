@@ -184,9 +184,9 @@ func (a *Address) IsIPv6() bool {
 // Size 返回 sockaddr 结构的大小
 func (a *Address) Size() int {
 	if a.IsIPv4() {
-		return syscall.SizeofSockaddrInet4
+		return SizeofSockaddrInet4
 	}
-	return syscall.SizeofSockaddrInet6
+	return SizeofSockaddrInet6
 }
 
 // Hash 计算地址的哈希值
